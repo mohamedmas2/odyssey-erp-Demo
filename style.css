@@ -75,7 +75,9 @@ a {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
 }
 
@@ -505,6 +507,80 @@ body[data-theme="dark"] .demo-form {
   border-radius: 14px;
   background: var(--bg-strong);
   color: var(--text);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.demo-form input:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-soft);
+}
+
+.demo-form input[aria-invalid="true"] {
+  border-color: #d93025;
+  box-shadow: 0 0 0 4px rgba(217, 48, 37, 0.12);
+}
+
+.submit-btn {
+  position: relative;
+  gap: 10px;
+}
+
+.submit-btn[disabled] {
+  cursor: wait;
+  opacity: 0.82;
+}
+
+.btn-spinner {
+  width: 18px;
+  height: 18px;
+  display: none;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.submit-btn.is-loading .btn-spinner {
+  display: inline-block;
+}
+
+.form-note {
+  margin: 0;
+  padding: 12px 14px 0;
+  min-height: 34px;
+}
+
+.form-note[data-state="success"] {
+  color: #0d8c57;
+}
+
+.form-note[data-state="error"] {
+  color: #c8352e;
+}
+
+.form-note[data-state="loading"] {
+  color: var(--primary);
+}
+
+.form-honeypot,
+.submission-frame {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.submission-frame {
+  border: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .footer {

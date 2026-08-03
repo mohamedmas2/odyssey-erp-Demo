@@ -217,25 +217,32 @@
             <p data-i18n="ctaText">Give your team a single platform for finance, control, reporting, and operational momentum.</p>
           </div>
 
-          <form class="demo-form" novalidate>
+          <form class="demo-form" id="demoForm" novalidate>
             <label>
               <span data-i18n="formName">Full name</span>
-              <input type="text" name="name" data-i18n-placeholder="formNamePlaceholder" placeholder="Your name">
+              <input type="text" name="name" data-i18n-placeholder="formNamePlaceholder" placeholder="Your name" required autocomplete="name">
             </label>
             <label>
               <span data-i18n="formCompany">Company</span>
-              <input type="text" name="company" data-i18n-placeholder="formCompanyPlaceholder" placeholder="Company name">
+              <input type="text" name="company" data-i18n-placeholder="formCompanyPlaceholder" placeholder="Company name" required autocomplete="organization">
             </label>
             <label>
               <span data-i18n="formEmail">Work email</span>
-              <input type="email" name="email" data-i18n-placeholder="formEmailPlaceholder" placeholder="name@company.com">
+              <input type="email" name="email" data-i18n-placeholder="formEmailPlaceholder" placeholder="name@company.com" required autocomplete="email" inputmode="email">
             </label>
             <label>
               <span data-i18n="formPhone">Phone</span>
-              <input type="tel" name="phone" data-i18n-placeholder="formPhonePlaceholder" placeholder="+20 000 000 0000">
+              <input type="tel" name="phone" data-i18n-placeholder="formPhonePlaceholder" placeholder="+20 000 000 0000" required autocomplete="tel" inputmode="tel">
             </label>
-            <button class="btn btn-primary btn-block" type="submit" data-i18n="formSubmit">Request Demo</button>
-            <p class="form-note" id="formMessage" data-i18n="formNote">We'll use these details to contact you and arrange a tailored demo.</p>
+            <div class="form-honeypot" aria-hidden="true">
+              <label for="websiteField">Website</label>
+              <input type="text" id="websiteField" name="website" tabindex="-1" autocomplete="off">
+            </div>
+            <button class="btn btn-primary btn-block submit-btn" id="formSubmitButton" type="submit">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span data-i18n="formSubmit">Request Demo</span>
+            </button>
+            <p class="form-note" id="formMessage" data-state="idle" data-i18n="formNote">We'll use these details to contact you and arrange a tailored demo.</p>
           </form>
         </div>
       </section>
@@ -246,6 +253,8 @@
     </footer>
   </div>
 
+  <iframe name="leadCaptureFrame" id="leadCaptureFrame" class="submission-frame" title="Background form submission"></iframe>
+  <script src="lead-form.config.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

@@ -63,14 +63,20 @@ const translations = {
     formName: "Full name",
     formCompany: "Company",
     formEmail: "Work email",
-    formPhone: "Phone",
+    formPhone: "Phone / WhatsApp",
     formNamePlaceholder: "Your name",
     formCompanyPlaceholder: "Company name",
     formEmailPlaceholder: "name@company.com",
     formPhonePlaceholder: "+20 000 000 0000",
     formSubmit: "Request Demo",
     formNote: "We'll use these details to contact you and arrange a tailored demo.",
-    formSuccess: "Thanks. Your request is ready to be shared with the Odyssey team.",
+    formLoading: "Sending your request securely...",
+    formSuccess: "Thank you. Your demo request was sent successfully and our team will contact you shortly.",
+    formError: "We couldn't send your request right now. Please try again in a moment.",
+    formDuplicate: "This request was already sent recently. Please wait a few minutes before sending it again.",
+    formInvalidRequired: "Please complete all required fields before submitting.",
+    formInvalidEmail: "Please enter a valid work email address.",
+    formConfigError: "The demo form is not connected yet. Paste the Google Apps Script Web App URL into lead-form.config.js.",
     footerText: "Odyssey ERP. One system. One journey. Endless possibilities."
   },
   ar: {
@@ -137,14 +143,20 @@ const translations = {
     formName: "الاسم الكامل",
     formCompany: "الشركة",
     formEmail: "البريد الوظيفي",
-    formPhone: "الهاتف",
+    formPhone: "الهاتف / واتساب",
     formNamePlaceholder: "اسمك",
     formCompanyPlaceholder: "اسم الشركة",
     formEmailPlaceholder: "name@company.com",
     formPhonePlaceholder: "+20 000 000 0000",
     formSubmit: "اطلب عرضًا",
     formNote: "سنستخدم هذه البيانات للتواصل معك وترتيب عرض توضيحي مناسب.",
-    formSuccess: "شكرًا لك. طلبك أصبح جاهزًا للمشاركة مع فريق Odyssey.",
+    formLoading: "جارٍ إرسال طلبك بأمان...",
+    formSuccess: "شكرًا لك. تم إرسال طلب العرض التوضيحي بنجاح وسيتواصل معك فريقنا قريبًا.",
+    formError: "تعذر إرسال طلبك الآن. يرجى المحاولة مرة أخرى بعد قليل.",
+    formDuplicate: "تم إرسال هذا الطلب مؤخرًا بالفعل. يرجى الانتظار بضع دقائق قبل الإرسال مرة أخرى.",
+    formInvalidRequired: "يرجى إكمال جميع الحقول المطلوبة قبل الإرسال.",
+    formInvalidEmail: "يرجى إدخال بريد وظيفي صحيح.",
+    formConfigError: "نموذج العرض غير متصل بعد. الصق رابط Web App الخاص بـ Google Apps Script داخل lead-form.config.js.",
     footerText: "Odyssey ERP. نظام واحد. رحلة واحدة. إمكانيات بلا حدود."
   }
 };
@@ -155,12 +167,244 @@ const langToggle = document.getElementById("langToggle");
 const themeToggle = document.getElementById("themeToggle");
 const menuToggle = document.getElementById("menuToggle");
 const nav = document.querySelector(".nav");
-const form = document.querySelector(".demo-form");
+const form = document.getElementById("demoForm");
 const formMessage = document.getElementById("formMessage");
+const submitButton = document.getElementById("formSubmitButton");
+const hiddenFrame = document.getElementById("leadCaptureFrame");
+const fields = Array.from(form.querySelectorAll("input:not([type='hidden'])"));
 
+const APP_CONFIG = window.ODYSSEY_DEMO_CONFIG || {};
+const APP_SCRIPT_URL = (APP_CONFIG.webAppUrl || "").trim();
+const DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
+const RESPONSE_TIMEOUT_MS = 25000;
 const savedLanguage = localStorage.getItem("odyssey-language") || "en";
 const savedTheme = localStorage.getItem("odyssey-theme");
 const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+let submitTimeoutId = null;
+let pendingSubmissionKey = "";
+let isSubmitting = false;
+
+function t(key) {
+  const language = body.dataset.language === "ar" ? "ar" : "en";
+  return translations[language][key] || translations.en[key] || "";
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function sanitizeValue(value) {
+  return normalizeText(value).replace(/[<>]/g, "");
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value);
+}
+
+function submissionFingerprint() {
+  const formData = new FormData(form);
+  return ["name", "company", "email", "phone"]
+    .map((key) => sanitizeValue(formData.get(key)).toLowerCase())
+    .join("|");
+}
+
+function hasRecentDuplicate() {
+  const lastSubmission = sessionStorage.getItem("odyssey-demo-last-submission");
+  if (!lastSubmission) return false;
+
+  try {
+    const parsed = JSON.parse(lastSubmission);
+    if (!parsed.key || !parsed.timestamp) return false;
+    return parsed.key === submissionFingerprint() && Date.now() - parsed.timestamp < DUPLICATE_WINDOW_MS;
+  } catch {
+    return false;
+  }
+}
+
+function rememberSubmission() {
+  sessionStorage.setItem(
+    "odyssey-demo-last-submission",
+    JSON.stringify({
+      key: pendingSubmissionKey,
+      timestamp: Date.now()
+    })
+  );
+}
+
+function setMessage(state, text) {
+  formMessage.dataset.state = state;
+  formMessage.textContent = text;
+}
+
+function setLoadingState(loading) {
+  isSubmitting = loading;
+  submitButton.disabled = loading;
+  submitButton.classList.toggle("is-loading", loading);
+  fields.forEach((field) => {
+    field.readOnly = loading;
+  });
+}
+
+function clearValidationErrors() {
+  fields.forEach((field) => field.setAttribute("aria-invalid", "false"));
+}
+
+function markInvalid(field) {
+  field.setAttribute("aria-invalid", "true");
+}
+
+function validateForm() {
+  clearValidationErrors();
+
+  const requiredFields = ["name", "company", "email", "phone"];
+  let firstInvalidField = null;
+
+  requiredFields.forEach((name) => {
+    const field = form.elements.namedItem(name);
+    if (!field || sanitizeValue(field.value)) return;
+    markInvalid(field);
+    firstInvalidField = firstInvalidField || field;
+  });
+
+  const emailField = form.elements.namedItem("email");
+  if (emailField && sanitizeValue(emailField.value) && !isValidEmail(sanitizeValue(emailField.value))) {
+    markInvalid(emailField);
+    firstInvalidField = firstInvalidField || emailField;
+    setMessage("error", t("formInvalidEmail"));
+    emailField.focus();
+    return false;
+  }
+
+  if (firstInvalidField) {
+    setMessage("error", t("formInvalidRequired"));
+    firstInvalidField.focus();
+    return false;
+  }
+
+  return true;
+}
+
+function injectHiddenField(name, value) {
+  let field = form.querySelector(`input[type="hidden"][name="${name}"]`);
+  if (!field) {
+    field = document.createElement("input");
+    field.type = "hidden";
+    field.name = name;
+    form.appendChild(field);
+  }
+  field.value = value;
+}
+
+function prepareHiddenFields() {
+  const payload = new FormData(form);
+  const name = sanitizeValue(payload.get("name"));
+  const company = sanitizeValue(payload.get("company"));
+  const email = sanitizeValue(payload.get("email"));
+  const phone = sanitizeValue(payload.get("phone"));
+
+  injectHiddenField("jobTitle", "");
+  injectHiddenField("country", "");
+  injectHiddenField("companySize", "");
+  injectHiddenField("industry", "");
+  injectHiddenField("message", "");
+  injectHiddenField("source", "Landing Page");
+  injectHiddenField("status", "New");
+  injectHiddenField("assignedTo", "");
+  injectHiddenField("pageUrl", window.location.href);
+  injectHiddenField("pageTitle", document.title);
+  injectHiddenField("language", body.dataset.language === "ar" ? "ar" : "en");
+  injectHiddenField("submittedAtClient", new Date().toISOString());
+  injectHiddenField("dedupeKey", [name, company, email, phone].join("|").toLowerCase());
+}
+
+function resetFormState() {
+  clearTimeout(submitTimeoutId);
+  submitTimeoutId = null;
+  pendingSubmissionKey = "";
+  setLoadingState(false);
+}
+
+function handleSubmissionResponse(payload) {
+  if (!payload || payload.type !== "odyssey-demo-response") return;
+
+  resetFormState();
+
+  if (payload.status === "success") {
+    rememberSubmission();
+    form.reset();
+    clearValidationErrors();
+    setMessage("success", t("formSuccess"));
+    return;
+  }
+
+  if (payload.status === "duplicate") {
+    setMessage("error", t("formDuplicate"));
+    return;
+  }
+
+  setMessage("error", payload.message || t("formError"));
+}
+
+function isExpectedMessageOrigin(origin) {
+  return /google(?:usercontent)?\.com$/i.test(new URL(origin).hostname);
+}
+
+window.addEventListener("message", (event) => {
+  if (!event.origin) return;
+
+  let payload = event.data;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return;
+    }
+  }
+
+  if (!payload || payload.type !== "odyssey-demo-response") return;
+  if (!isExpectedMessageOrigin(event.origin)) return;
+
+  handleSubmissionResponse(payload);
+});
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+
+  if (isSubmitting) return;
+
+  if (!APP_SCRIPT_URL || APP_SCRIPT_URL.includes("PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE")) {
+    setMessage("error", t("formConfigError"));
+    return;
+  }
+
+  if (!validateForm()) {
+    return;
+  }
+
+  if (hasRecentDuplicate()) {
+    setMessage("error", t("formDuplicate"));
+    return;
+  }
+
+  pendingSubmissionKey = submissionFingerprint();
+  prepareHiddenFields();
+  setLoadingState(true);
+  setMessage("loading", t("formLoading"));
+
+  form.action = APP_SCRIPT_URL;
+  form.method = "POST";
+  form.target = hiddenFrame.name;
+
+  submitTimeoutId = window.setTimeout(() => {
+    resetFormState();
+    setMessage("error", t("formError"));
+  }, RESPONSE_TIMEOUT_MS);
+
+  form.submit();
+});
 
 function applyLanguage(language) {
   const content = translations[language];
@@ -184,6 +428,10 @@ function applyLanguage(language) {
       element.setAttribute("placeholder", content[key]);
     }
   });
+
+  if (formMessage.dataset.state === "idle") {
+    formMessage.textContent = content.formNote;
+  }
 
   localStorage.setItem("odyssey-language", language);
 }
@@ -209,9 +457,13 @@ nav.querySelectorAll("a").forEach((link) => {
   link.addEventListener("click", () => nav.classList.remove("is-open"));
 });
 
-form.addEventListener("submit", (event) => {
-  event.preventDefault();
-  formMessage.textContent = translations[body.dataset.language].formSuccess;
+fields.forEach((field) => {
+  field.addEventListener("input", () => {
+    field.setAttribute("aria-invalid", "false");
+    if (formMessage.dataset.state === "error") {
+      setMessage("idle", t("formNote"));
+    }
+  });
 });
 
 const observer = new IntersectionObserver(
