@@ -1,3 +1,3 @@
 window.ODYSSEY_DEMO_CONFIG = {
-  webAppUrl: "PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE"
+  webAppUrl: "https://script.google.com/macros/s/AKfycbztNyqsL0ksRSNvh6O5O_lPlq10to_Nt8NMhrB_fHAQtuA0RE1ASDxOEZb20gvCkqr1XQ/exec"
 };
